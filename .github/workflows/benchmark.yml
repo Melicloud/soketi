@@ -3,7 +3,7 @@ name: Benchmark
 on:
   workflow_run:
     workflows:
-      - "CI"
+      - "TEST"
     types:
       - completed
 
