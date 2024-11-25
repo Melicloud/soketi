@@ -2,15 +2,10 @@ name: Benchmark
 
 on:
   push:
-    branches:
-      - '*'
     paths-ignore:
       - "**.md"
       - ".github/workflows/docker-*.yml"
       - ".github/*.yml"
-  pull_request:
-    branches:
-      - '*'
 
 jobs:
   build:

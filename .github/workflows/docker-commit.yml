@@ -4,112 +4,16 @@ on:
   push:
     branches:
       - "*"
-  pull_request:
-    branches:
-      - "*"
-    tags-ignore:
-      - "*"
+
+permissions:
+  id-token: write   # This is required for requesting the JWT
+  contents: read    # This is required for actions/checkout
+
+env:
+  AWS_ROLE_NAME: "GithubActionsDeployRole"
+  AWS_REGION: "us-east-1"
 
 jobs:
-  # Alpine build.
-  # WARNING: Deprecated, will be removed as it is not recommended
-  #          for uWebSockets.js
-  alpine:
-    if: "!contains(github.event.head_commit.message, 'skip ci')"
-
-    runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-
-      matrix:
-        node:
-          - '16'
-
-    services:
-      registry:
-        image: registry:2
-        ports:
-          - 5000:5000
-
-    name: Tag & Test Alpine Commit (node:${{ matrix.node }})
-
-    steps:
-      - uses: actions/checkout@v3.0.2
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-        with:
-          driver-opts: network=host
-
-      - name: Login to Quay
-        uses: docker/login-action@v2
-        with:
-          registry: quay.io
-          username: ${{ secrets.DOCKER_REGISTRY_USERNAME }}
-          password: ${{ secrets.DOCKER_REGISTRY_TOKEN }}
-
-      - name: Build and Push
-        uses: docker/build-push-action@v3
-        with:
-          push: true
-          context: .
-          tags: quay.io/soketi/soketi:${{ github.sha }}-${{ matrix.node }}-alpine
-          build-args: |
-            VERSION=${{ matrix.node }}
-
-  # Distroless build.
-  distroless:
-    if: "!contains(github.event.head_commit.message, 'skip ci')"
-
-    runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-
-      matrix:
-        node:
-          - '16'
-
-    services:
-      registry:
-        image: registry:2
-        ports:
-          - 5000:5000
-
-    name: Tag & Test Distroless Commit (node:${{ matrix.node }})
-
-    steps:
-      - uses: actions/checkout@v3.0.2
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-        with:
-          driver-opts: network=host
-
-      - name: Login to Quay
-        uses: docker/login-action@v2
-        with:
-          registry: quay.io
-          username: ${{ secrets.DOCKER_REGISTRY_USERNAME }}
-          password: ${{ secrets.DOCKER_REGISTRY_TOKEN }}
-
-      - name: Build and Push
-        uses: docker/build-push-action@v3
-        with:
-          push: true
-          context: .
-          tags: quay.io/soketi/soketi:${{ github.sha }}-${{ matrix.node }}-distroless
-          file: Dockerfile.distroless
-          build-args: |
-            VERSION=${{ matrix.node }}
-
   # Stable Debian build.
   debian:
     if: "!contains(github.event.head_commit.message, 'skip ci')"
@@ -123,38 +27,64 @@ jobs:
         node:
           - '16'
 
-    services:
-      registry:
-        image: registry:2
-        ports:
-          - 5000:5000
-
-    name: Tag & Test Debian Commit (node:${{ matrix.node }})
+    name: Tag Debian Commit (node:${{ matrix.node }})
 
     steps:
-      - uses: actions/checkout@v3.0.2
+      - uses: actions/checkout@v4.1.0
+
+      - name: Docker meta
+        id: docker_meta
+        uses: docker/metadata-action@v5.0.0
+        with:
+          images: public.ecr.aws/a7r6j8c8/soketi
+          tags: |
+            type=ref,event=pr,suffix=-${{ matrix.node }}-debian
+            type=raw,value=${{ github.sha }}-${{ matrix.node }}-debian
+          labels: |
+            quay.expires-after=7d
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
         with:
           driver-opts: network=host
 
-      - name: Login to Quay
-        uses: docker/login-action@v2
+      # - name: Login to Quay
+      #   uses: docker/login-action@v3
+      #   with:
+      #     registry: quay.io
+      #     username: ${{ secrets.DOCKER_REGISTRY_USERNAME }}
+      #     password: ${{ secrets.DOCKER_REGISTRY_TOKEN }}
+      - name: Configure aws credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          registry: quay.io
-          username: ${{ secrets.DOCKER_REGISTRY_USERNAME }}
-          password: ${{ secrets.DOCKER_REGISTRY_TOKEN }}
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ env.AWS_ROLE_NAME }}
+          role-session-name: GitHub_to_AWS_via_FederatedOIDC
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to AWS ECR
+        id: login-ecr-public
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registry-type: public
 
       - name: Build and Push
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v5
         with:
           push: true
           context: .
-          tags: quay.io/soketi/soketi:${{ github.sha }}-${{ matrix.node }}-debian
+          tags: ${{ steps.docker_meta.outputs.tags }}
+          labels: ${{ steps.docker_meta.outputs.labels }}
           file: Dockerfile.debian
           build-args: |
             VERSION=${{ matrix.node }}
+          cache-from: |
+            type=gha,scope=debian
+          cache-to: |
+            type=gha,scope=debian
+          platforms: |
+            linux/amd64
+            linux/arm64
+            linux/arm/v7

@@ -2,8 +2,6 @@ name: CI
 
 on:
   push:
-    branches:
-      - '*'
     tags:
       - '*'
     paths-ignore:
@@ -12,9 +10,6 @@ on:
       - ".github/workflows/benchmark.yml"
       - ".github/workflows/docker-*.yml"
       - ".github/*.yml"
-  pull_request:
-    branches:
-      - '*'
 
 jobs:
   build:
